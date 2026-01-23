@@ -1,0 +1,6 @@
+asyncio
+requests
+feedparser
+google-generativeai
+flask
+g4f
