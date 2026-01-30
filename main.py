@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 import requests
 import sys
 import os
+import g4f
 import random
 import feedparser
 import json
@@ -33,6 +34,7 @@ def home():
     return "الشاهين السوري شغّال وعم يراقب الأجواء 🔥"
 
 def run_flask(): 
+    # يتم تشغيل السيرفر يدوياً فقط في بيئة التطوير
     app.run(host='0.0.0.0', port=5000, debug=False)
 
 def keep_alive():
@@ -44,18 +46,19 @@ def keep_alive():
 logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(name)s: %(message)s')
 log = logging.getLogger("shahin")
 
-# --- الإعدادات الأساسية ---
+# --- الإعدادات الأساسية (عدل البيانات هنا) ---
 SERVER = "syriatalk.info"
 PORT = 5222
 JID = "al_shahin@syriatalk.info"
 PASSWORD = "12345678"
 NICK = "الشــاهِيــن الـسُّــورِي"
-MY_NICK = "ابن سـ☆☆☆ـوريـــا"  # لقبك كآدمن (نقاط لا نهائية)
+MY_NICK = "ابن سـ☆☆☆ـوريـــا" # لقبك أنت كآدمن (نقاط لا نهائية)
 
 ROOMS = [
     "الغوالي@conference.syriatalk.info",
     "دمشقيات@conference.syriatalk.info",
-    "شمس@conference.syriatalk.info"
+    "شمس@conference.syriatalk.info",
+    "مطر@conference.syriatalk.info"
 ]
 
 MEMORY_FILE = "shahin_memory.json"
@@ -80,8 +83,7 @@ def escape_xml(text):
     return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             .replace('"', "&quot;").replace("'", "&apos;")) if text else ""
 
-def strip_ns(tag):
-    return tag.split("}", 1)[1] if "}" in tag else tag
+def strip_ns(tag): return tag.split("}", 1)[1] if "}" in tag else tag
 
 # --- كلاس الاتصال ---
 class XMPPConnection:
@@ -97,8 +99,7 @@ class XMPPConnection:
             self.reader, self.writer = await asyncio.open_connection(self.server, self.port)
             self.connected = True
             return True
-        except:
-            return False
+        except: return False
 
     async def send_raw(self, data):
         if self.writer:
@@ -106,49 +107,34 @@ class XMPPConnection:
             await self.writer.drain()
 
     async def recv_raw(self):
-        if not self.reader:
-            return ""
+        if not self.reader: return ""
         try:
             data = await self.reader.read(4096)
             return data.decode(errors="ignore") if data else ""
-        except:
-            return ""
+        except: return ""
 
     async def open_stream(self):
-        await self.send_raw(
-            f"<stream:stream to='{self.domain}' xmlns='jabber:client' "
-            f"xmlns:stream='http://etherx.jabber.org/streams' version='1.0'>"
-        )
+        await self.send_raw(f"<stream:stream to='{self.domain}' xmlns='jabber:client' xmlns:stream='http://etherx.jabber.org/streams' version='1.0'>")
 
     async def sasl_plain_auth(self):
         await self.open_stream()
         while True:
             data = await self.recv_raw()
-            if "mechanisms" in data:
-                break
+            if "mechanisms" in data: break
         auth_str = f"\0{self.jid.split('@')[0]}\0{self.password}"
         auth_b64 = base64.b64encode(auth_str.encode()).decode()
-        await self.send_raw(
-            f"<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='PLAIN'>{auth_b64}</auth>"
-        )
+        await self.send_raw(f"<auth xmlns='urn:ietf:params:xml:ns:xmpp-sasl' mechanism='PLAIN'>{auth_b64}</auth>")
         await self.recv_raw()
         await self.open_stream()
         await self.recv_raw()
-        await self.send_raw(
-            "<iq type='set' id='b'><bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'>"
-            "<resource>shahin</resource></bind></iq>"
-        )
+        await self.send_raw("<iq type='set' id='b'><bind xmlns='urn:ietf:params:xml:ns:xmpp-bind'><resource>shahin</resource></bind></iq>")
         await self.recv_raw()
-        await self.send_raw(
-            "<iq type='set' id='s'><session xmlns='urn:ietf:params:xml:ns:xmpp-session'/></iq>"
-        )
+        await self.send_raw("<iq type='set' id='s'><session xmlns='urn:ietf:params:xml:ns:xmpp-session'/></iq>")
         await self.recv_raw()
         return True
 
     async def send_message(self, to_jid, body, mtype="groupchat"):
-        await self.send_raw(
-            f"<message to='{to_jid}' type='{mtype}'><body>{escape_xml(body)}</body></message>"
-        )
+        await self.send_raw(f"<message to='{to_jid}' type='{mtype}'><body>{escape_xml(body)}</body></message>")
 
 # --- كلاس البوت الشامل ---
 class ShahinBot:
@@ -159,19 +145,18 @@ class ShahinBot:
         self.memory.setdefault("rooms", {})
         self.memory.setdefault("insults", {})
         self.memory.setdefault("admins", [])
-        self.active_questions = {}  # {room: {"country": "...", "capital": "..."}}
+        self.active_questions = {} # {room: {"country": "...", "capital": "..."}}
 
     def load_memory(self):
         if os.path.exists(MEMORY_FILE):
             try:
-                with open(MEMORY_FILE, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except:
-                return {}
+                with open(MEMORY_FILE, "r", encoding="utf-8") as f: return json.load(f)
+            except: return {}
         return {}
 
     def save_memory(self):
         try:
+            # استخدام ملف مؤقت ثم استبداله لضمان عدم تلف البيانات في حال الانقطاع المفاجئ
             temp_file = MEMORY_FILE + ".tmp"
             with open(temp_file, "w", encoding="utf-8") as f:
                 json.dump(self.memory, f, ensure_ascii=False, indent=2)
@@ -182,45 +167,27 @@ class ShahinBot:
             log.error(f"Save memory error: {e}")
 
     async def start(self):
-    if not await self.conn.sasl_plain_auth():
-        return False
-
-    # presence عام
-    await self.conn.send_raw("<presence/>")
-
-    # انتظار ضروري لحتى السيرفر يثبت الجلسة
-    await asyncio.sleep(1.5)
-
-    # دخول الرومات
-    for room in self.rooms:
-        await self.conn.send_raw(
-            f"<presence to='{room}/{self.nick}'>"
-            f"<x xmlns='http://jabber.org/protocol/muc'/></presence>"
-        )
-        await asyncio.sleep(0.3)  # مهم جداً
-
-    asyncio.create_task(self._recv_loop())
-    return True
-        # بانر التفعيل (معلّق افتراضياً حتى ما يزعج الرومات كل ريستارت)
-        # banner = "┏━━━━━━━ ⚡ ━━━━━━━┓\n تـم تـفـعـيـل نـظـام الشــاهِيــن\n ᴘᴏᴡᴇʀᴇᴅ ʙʏ ابن سـ☆☆☆ـوريـــا\n┗━━━━━━━ ⚡ ━━━━━━━┛"
+        if not await self.conn.sasl_plain_auth(): return False
+        await self.conn.send_raw("<presence/>")
+        for room in self.rooms:
+            await self.conn.send_raw(f"<presence to='{room}/{self.nick}'><x xmlns='http://jabber.org/protocol/muc'/></presence>")
+        
+        banner = "┏━━━━━━━ ⚡ ━━━━━━━┓\n تـم تـفـعـيـل نـظـام الشــاهِيــن\n ᴘᴏᴡᴇʀᴇᴅ ʙʏ ابن سـ☆☆☆ـوريـــا\n┗━━━━━━━ ⚡ ━━━━━━━┛"
+        # لا ترسل البانر عند كل إعادة تشغيل لتجنب الإزعاج وللتأكد من حفظ البيانات أولاً
         # for room in self.rooms:
         #     await self.conn.send_message(room, banner)
-
+        
         asyncio.create_task(self._recv_loop())
         return True
 
     async def _recv_loop(self):
         while self.conn.connected:
             data = await self.conn.recv_raw()
-            if not data:
-                break
+            if not data: break
             self.conn.buffer += data
             while "</message>" in self.conn.buffer or "</presence>" in self.conn.buffer:
-                idxs = [self.conn.buffer.find("</message>"), self.conn.buffer.find("</presence>")]
-                idxs = [i for i in idxs if i != -1]
-                idx = min(idxs) if idxs else -1
-                if idx == -1:
-                    break
+                idx = min([i for i in [self.conn.buffer.find("</message>"), self.conn.buffer.find("</presence>")] if i != -1] or [-1])
+                if idx == -1: break
                 tag = "</message>" if self.conn.buffer.find("</message>") == idx else "</presence>"
                 stanza_str, self.conn.buffer = self.conn.buffer.split(tag, 1)
                 self._handle_stanza(stanza_str + tag)
@@ -228,12 +195,9 @@ class ShahinBot:
     def _handle_stanza(self, xml_str):
         try:
             root = ET.fromstring(xml_str)
-            tag = strip_ns(root.tag)
-            frm = root.attrib.get("from", "")
-            room = frm.split("/")[0]
-            sender_nick = frm.split("/")[1] if "/" in frm else ""
-            if sender_nick == self.nick:
-                return
+            tag, frm = strip_ns(root.tag), root.attrib.get("from", "")
+            room, sender_nick = frm.split("/")[0], (frm.split("/")[1] if "/" in frm else "")
+            if sender_nick == self.nick: return
 
             if tag == "message":
                 body_elem = root.find("{jabber:client}body") or root.find("body")
@@ -246,26 +210,17 @@ class ShahinBot:
                         q = self.active_questions[room]
                         if body == q["capital"]:
                             room_data = self.memory["rooms"].setdefault(room, {"users": {}})
-                            u = room_data["users"].setdefault(
-                                sender_nick, {"points": 0, "last_seen": ""}
-                            )
+                            u = room_data["users"].setdefault(sender_nick, {"points": 0, "last_seen": ""})
                             u["points"] += 50
                             self.save_memory()
                             del self.active_questions[room]
-                            asyncio.create_task(
-                                self.conn.send_message(
-                                    room,
-                                    f"✅ كفو يا {sender_nick}! الجواب صح ({body})، ربحت 50 نقطة! 🏆",
-                                )
-                            )
-                            return
+                            asyncio.create_task(self.conn.send_message(room, f"✅ كفو يا {sender_nick}! الجواب صح ({body})، ربحت 50 نقطة! 🏆"))
+                            return # لا تكمل معالجة الرسالة كأمر إذا كانت هي الجواب الصحيح
 
                     # تسجيل النقاط حسب الروم
                     if sender_nick and room:
                         room_data = self.memory["rooms"].setdefault(room, {"users": {}})
-                        u = room_data["users"].setdefault(
-                            sender_nick, {"points": 0, "last_seen": ""}
-                        )
+                        u = room_data["users"].setdefault(sender_nick, {"points": 0, "last_seen": ""})
                         u["points"] += 1
                         u["last_seen"] = str(datetime.now())
                         self.save_memory()
@@ -273,56 +228,38 @@ class ShahinBot:
                     # فحص المسبات وتخزينها حسب الروم
                     for bad in BAD_WORDS:
                         if bad in body:
-                            self.memory["insults"].setdefault(room, []).append(
-                                {
-                                    "nick": sender_nick,
-                                    "msg": body,
-                                    "time": str(datetime.now()),
-                                }
-                            )
+                            self.memory["insults"].setdefault(room, []).append({"nick": sender_nick, "msg": body, "time": str(datetime.now())})
                             self.save_memory()
 
                     # أوامر الآدمن (ريست)
                     if self.is_admin(sender_nick) and body in ["ريست", "تحديث"]:
-                        os.execv(sys.executable, ["python"] + sys.argv)
+                        os.execv(sys.executable, ['python'] + sys.argv)
 
+                    # معالجة الأوامر
                     # إذا الرسالة من روم (groupchat)
                     if mtype == "groupchat":
                         if body.startswith(NICK):
                             clean = body.replace(NICK, "", 1)
+                            # تنظيف الرموز والمسافات بعد اللقب
                             clean = clean.lstrip(" :،؛.-_*/\\").strip()
-                            asyncio.create_task(
-                                self._process_command(room, clean, sender_nick, mtype)
-                            )
+                            asyncio.create_task(self._process_command(room, clean, sender_nick, mtype))
                         return
 
-                    # إذا الرسالة من خاص تابع للروم
+                    # إذا الرسالة من خاص تابع للروم (private message inside group)
                     if "@conference." in frm and mtype == "chat":
                         clean = body.strip()
-                        asyncio.create_task(
-                            self._process_command(room, clean, sender_nick, mtype)
-                        )
+                        asyncio.create_task(self._process_command(room, clean, sender_nick, mtype))
                         return
 
                     # إذا خاص حقيقي
                     if mtype == "chat":
                         clean = body.strip()
-                        asyncio.create_task(
-                            self._process_command(frm, clean, sender_nick, mtype)
-                        )
+                        asyncio.create_task(self._process_command(frm, clean, sender_nick, mtype))
                         return
-
-                    # أمر الأوامر (لو حدا كتبها بدون مناداة اللقب)
-                    if body == "=الشاهين اوامر":
-                        asyncio.create_task(
-                            self.conn.send_message(
-                                room,
-                                "🔹 الأوامر: (طقس، صلاة، أخبار، برج، خيروك، عاصمة، نقاطي، توب، روماتك، فوت <اسم>، اطلع <اسم>، أهدي <رقم> لـ <اسم>، صفّر <اسم>، صفّر الكل)",
-                                mtype=mtype,
-                            )
-                        )
-        except:
-            pass
+                    
+                    elif body == "=الشاهين اوامر":
+                        asyncio.create_task(self.conn.send_message(room, "🔹 الأوامر: (طقس، صلاة، أخبار، برج، خيروك، عاصمة، نقاطي، توب، روماتك، فوت <اسم>، اطلع <اسم>، أهدي <رقم> لـ <اسم>، صفّر <اسم>، صفّر الكل)", mtype=mtype))
+        except: pass
 
     def is_admin(self, nick):
         return nick == MY_NICK or nick in self.memory.get("admins", [])
@@ -330,12 +267,13 @@ class ShahinBot:
     async def _process_command(self, target, clean, nick, mtype):
         def reply(msg):
             if mtype == "groupchat":
-                asyncio.create_task(
-                    self.conn.send_message(target, msg, mtype="groupchat")
-                )
+                asyncio.create_task(self.conn.send_message(target, msg, mtype="groupchat"))
             else:
+                # الرد بالخاص (سواء خاص حقيقي أو خاص روم)
+                # target هنا هو الـ JID الصحيح (إما الروم/الاسم أو JID الشخص)
                 asyncio.create_task(self.conn.send_message(target, msg, mtype="chat"))
 
+        # لم يعد هناك حاجة لفحص اللقب هنا لأننا فحصناه في handlestanza
         clean = clean.strip()
 
         if not clean:
@@ -353,8 +291,7 @@ class ShahinBot:
                 return
             try:
                 idx = parts.index("ادمن") + 1
-                if parts[idx] == "لـ":
-                    idx += 1
+                if parts[idx] == "لـ": idx += 1
             except:
                 reply("❗ الصيغة الصحيحة: إعطاء ادمن لـ <الاسم>")
                 return
@@ -377,8 +314,7 @@ class ShahinBot:
                 return
             try:
                 idx = parts.index("ادمن") + 1
-                if parts[idx] == "من":
-                    idx += 1
+                if parts[idx] == "من": idx += 1
             except:
                 reply("❗ الصيغة الصحيحة: سحب ادمن من <الاسم>")
                 return
@@ -481,57 +417,35 @@ class ShahinBot:
         # --- أوامر النقاط حسب الروم ---
         if "نقاطي" in clean:
             if self.is_admin(nick):
-                await self.conn.send_message(
-                    target,
-                    f"⭐ يا زعيم {nick}، نقاطك لا نهائية (∞)!",
-                    mtype=mtype,
-                )
+                await self.conn.send_message(target, f"⭐ يا زعيم {nick}، نقاطك لا نهائية (∞)!", mtype=mtype)
             else:
                 room = target
-                if (
-                    room in self.memory["rooms"]
-                    and nick in self.memory["rooms"][room]["users"]
-                ):
+                if room in self.memory["rooms"] and nick in self.memory["rooms"][room]["users"]:
                     pts = self.memory["rooms"][room]["users"][nick]["points"]
-                    await self.conn.send_message(
-                        target, f"⭐ معك {pts} نقطة بهالروم.", mtype=mtype
-                    )
+                    await self.conn.send_message(target, f"⭐ معك {pts} نقطة بهالروم.", mtype=mtype)
                 else:
-                    await self.conn.send_message(
-                        target, "❗ ما عندك نقاط بهالروم.", mtype=mtype
-                    )
+                    await self.conn.send_message(target, "❗ ما عندك نقاط بهالروم.", mtype=mtype)
 
         elif clean.startswith("نقاط "):
-            t_user = clean.replace("نقاط", "", 1).strip()
+            t_user = clean.replace("نقاط", "").strip()
             room = target
-            if (
-                room in self.memory["rooms"]
-                and t_user in self.memory["rooms"][room]["users"]
-            ):
+            if room in self.memory["rooms"] and t_user in self.memory["rooms"][room]["users"]:
                 pts = self.memory["rooms"][room]["users"][t_user]["points"]
-                await self.conn.send_message(
-                    target, f"📌 {t_user} معه {pts} نقطة بهالروم.", mtype=mtype
-                )
+                await self.conn.send_message(target, f"📌 {t_user} معه {pts} نقطة بهالروم.", mtype=mtype)
             else:
-                await self.conn.send_message(
-                    target, f"❗ ما لقيت {t_user} بهالروم.", mtype=mtype
-                )
+                await self.conn.send_message(target, f"❗ ما لقيت {t_user} بهالروم.", mtype=mtype)
 
         elif "توب" in clean:
             room = target
             if room in self.memory["rooms"]:
                 users = self.memory["rooms"][room]["users"]
-                top = sorted(
-                    users.items(), key=lambda x: x[1]["points"], reverse=True
-                )[:5]
+                top = sorted(users.items(), key=lambda x: x[1]["points"], reverse=True)[:5]
                 msg = "🏆 أفضل 5 بهالروم:\n"
                 for i, (u, data) in enumerate(top, 1):
                     msg += f"{i}️⃣ {u}: {data['points']} نقطة\n"
                 await self.conn.send_message(target, msg, mtype=mtype)
             else:
-                await self.conn.send_message(
-                    target, "❗ ما في بيانات لهالروم لسا.", mtype=mtype
-                )
+                await self.conn.send_message(target, "❗ ما في بيانات لهالروم لسا.", mtype=mtype)
 
         elif "صفّر الكل" in clean and self.is_admin(nick):
             room = target
@@ -539,385 +453,186 @@ class ShahinBot:
                 for u in self.memory["rooms"][room]["users"]:
                     self.memory["rooms"][room]["users"][u]["points"] = 0
                 self.save_memory()
-                await self.conn.send_message(
-                    target, "🧨 تم تصفير نقاط الجميع بهالروم!", mtype=mtype
-                )
+                await self.conn.send_message(target, "🧨 تم تصفير نقاط الجميع بهالروم!", mtype=mtype)
 
         elif clean.startswith("صفّر ") and self.is_admin(nick):
             room = target
-            t_user = clean.replace("صفّر", "", 1).strip()
-            if (
-                room in self.memory["rooms"]
-                and t_user in self.memory["rooms"][room]["users"]
-            ):
+            t_user = clean.replace("صفّر", "").strip()
+            if room in self.memory["rooms"] and t_user in self.memory["rooms"][room]["users"]:
                 self.memory["rooms"][room]["users"][t_user]["points"] = 0
                 self.save_memory()
-                await self.conn.send_message(
-                    target, f"🔄 صفّرت نقاط {t_user} بهالروم.", mtype=mtype
-                )
+                await self.conn.send_message(target, f"🔄 صفّرت نقاط {t_user} بهالروم.", mtype=mtype)
             else:
-                await self.conn.send_message(
-                    target, f"❗ ما لقيت {t_user} بهالروم.", mtype=mtype
-                )
+                await self.conn.send_message(target, f"❗ ما لقيت {t_user} بهالروم.", mtype=mtype)
 
         elif clean.startswith("أهدي "):
             try:
                 parts = clean.split()
                 amount = int(parts[1])
 
+                # استخراج الاسم كامل بعد "لـ"
                 idx = parts.index("لـ") + 1
                 to_user = " ".join(parts[idx:])
                 room = target
-
+                
                 room_data = self.memory["rooms"].setdefault(room, {"users": {}})
-
-                if self.is_admin(nick):  # الآدمن يعطي بدون خصم
-                    target_user = room_data["users"].setdefault(
-                        to_user, {"points": 0, "last_seen": ""}
-                    )
+                
+                if self.is_admin(nick): # الآدمن يعطي بدون خصم
+                    target_user = room_data["users"].setdefault(to_user, {"points": 0, "last_seen": ""})
                     target_user["points"] += amount
                     self.save_memory()
-                    await self.conn.send_message(
-                        target,
-                        f"🎁 الزعيم {nick} عطى هدية {amount} نقطة لـ {to_user} بهالروم!",
-                    )
+                    await self.conn.send_message(target, f"🎁 الزعيم {nick} عطى هدية {amount} نقطة لـ {to_user} بهالروم!")
                 else:
                     user_pts = room_data["users"].get(nick, {"points": 0})["points"]
                     if user_pts >= amount:
                         room_data["users"][nick]["points"] -= amount
-                        target_user = room_data["users"].setdefault(
-                            to_user, {"points": 0, "last_seen": ""}
-                        )
+                        target_user = room_data["users"].setdefault(to_user, {"points": 0, "last_seen": ""})
                         target_user["points"] += amount
                         self.save_memory()
-                        await self.conn.send_message(
-                            target,
-                            f"🎁 {nick} أهدى {amount} نقطة لـ {to_user} بهالروم. كفو!",
-                        )
+                        await self.conn.send_message(target, f"🎁 {nick} أهدى {amount} نقطة لـ {to_user} بهالروم. كفو!")
                     else:
-                        await self.conn.send_message(
-                            target,
-                            f"❌ نقاطك ما بتكفي بهالروم يا {nick}!",
-                        )
+                        await self.conn.send_message(target, f"❌ نقاطك ما بتكفي بهالروم يا {nick}!")
             except:
-                await self.conn.send_message(
-                    target, "❗ الطريقة غلط.. جرب: أهدي 50 لـ فلان"
-                )
+                await self.conn.send_message(target, "❗ الطريقة غلط.. جرب: أهدي 50 لـ فلان")
 
         # --- أوامر الرومات ---
         elif clean.startswith("فوت "):
-            room_name = clean.replace("فوت", "", 1).strip()
+            room_name = clean.replace("فوت", "").strip()
             room_jid = f"{room_name}@conference.syriatalk.info"
-            await self.conn.send_raw(
-                f"<presence to='{room_jid}/{self.nick}'>"
-                f"<x xmlns='http://jabber.org/protocol/muc'/></presence>"
-            )
-            if room_jid not in self.rooms:
-                self.rooms.append(room_jid)
+            await self.conn.send_raw(f"<presence to='{room_jid}/{self.nick}'><x xmlns='http://jabber.org/protocol/muc'/></presence>")
+            if room_jid not in self.rooms: self.rooms.append(room_jid)
             await self.conn.send_message(target, f"✅ دخلت روم {room_name}.")
 
         elif clean.startswith("اخرج ") and self.is_admin(nick):
-            room_name = clean.replace("اخرج", "", 1).strip()
-            room_jid = (
-                f"{room_name}@conference.syriatalk.info"
-                if "@" not in room_name
-                else room_name
-            )
-            await self.conn.send_raw(
-                f"<presence to='{room_jid}/{self.nick}' type='unavailable'/>"
-            )
-            if room_jid in self.rooms:
-                self.rooms.remove(room_jid)
-            await self.conn.send_message(
-                target, f"🚪 خرجت من روم {room_name}.", mtype=mtype
-            )
+            room_name = clean.replace("اخرج", "").strip()
+            room_jid = f"{room_name}@conference.syriatalk.info" if "@" not in room_name else room_name
+            await self.conn.send_raw(f"<presence to='{room_jid}/{self.nick}' type='unavailable'/>")
+            if room_jid in self.rooms: self.rooms.remove(room_jid)
+            await self.conn.send_message(target, f"🚪 خرجت من روم {room_name}.", mtype=mtype)
 
         elif clean.startswith("اطلع "):
-            room_name = clean.replace("اطلع", "", 1).strip()
-            room_jid = (
-                f"{room_name}@conference.syriatalk.info"
-                if "@" not in room_name
-                else room_name
-            )
-            await self.conn.send_raw(
-                f"<presence to='{room_jid}/{self.nick}' type='unavailable'/>"
-            )
-            if room_jid in self.rooms:
-                self.rooms.remove(room_jid)
-            await self.conn.send_message(
-                target, f"❌ طلعت من روم {room_name}.", mtype=mtype
-            )
+            room_name = clean.replace("اطلع", "").strip()
+            room_jid = f"{room_name}@conference.syriatalk.info" if "@" not in room_name else room_name
+            await self.conn.send_raw(f"<presence to='{room_jid}/{self.nick}' type='unavailable'/>")
+            if room_jid in self.rooms: self.rooms.remove(room_jid)
+            await self.conn.send_message(target, f"❌ طلعت من روم {room_name}.", mtype=mtype)
 
         elif clean.startswith("ادخل ") and self.is_admin(nick):
-            room_name = clean.replace("ادخل", "", 1).strip()
-            room_jid = (
-                f"{room_name}@conference.syriatalk.info"
-                if "@" not in room_name
-                else room_name
-            )
-            await self.conn.send_raw(
-                f"<presence to='{room_jid}/{self.nick}'>"
-                f"<x xmlns='http://jabber.org/protocol/muc'/></presence>"
-            )
-            if room_jid not in self.rooms:
-                self.rooms.append(room_jid)
-            await self.conn.send_message(
-                target, f"✔ دخلت روم {room_name}.", mtype=mtype
-            )
+            room_name = clean.replace("ادخل", "").strip()
+            room_jid = f"{room_name}@conference.syriatalk.info" if "@" not in room_name else room_name
+            await self.conn.send_raw(f"<presence to='{room_jid}/{self.nick}'><x xmlns='http://jabber.org/protocol/muc'/></presence>")
+            if room_jid not in self.rooms: self.rooms.append(room_jid)
+            await self.conn.send_message(target, f"✔ دخلت روم {room_name}.", mtype=mtype)
 
         elif "روماتك" in clean:
-            msg = (
-                "📡 الرومات الحالية:\n"
-                + "\n".join([f"• {r}" for r in self.rooms])
-                if self.rooms
-                else "ما في رومات."
-            )
+            msg = "📡 الرومات الحالية:\n" + "\n".join([f"• {r}" for r in self.rooms]) if self.rooms else "ما في رومات."
             await self.conn.send_message(target, msg, mtype=mtype)
 
         # --- الأدوات العامة ---
         elif "صلاة" in clean:
             try:
-                r = requests.get(
-                    "https://api.aladhan.com/v1/timingsByCity?city=Damascus&country=Syria&method=4"
-                ).json()
-                t = r["data"]["timings"]
-                msg = (
-                    f"🕌 دمشق: فجر {t['Fajr']}، ظهر {t['Dhuhr']}، عصر {t['Asr']}، "
-                    f"مغرب {t['Maghrib']}، عشاء {t['Isha']}"
-                )
+                r = requests.get("https://api.aladhan.com/v1/timingsByCity?city=Damascus&country=Syria&method=4").json()
+                t = r['data']['timings']
+                msg = f"🕌 دمشق: فجر {t['Fajr']}، ظهر {t['Dhuhr']}، عصر {t['Asr']}، مغرب {t['Maghrib']}، عشاء {t['Isha']}"
                 await self.conn.send_message(target, msg)
-            except:
-                pass
-
+            except: pass
+            
         elif "طقس" in clean:
-            city = clean.replace("طقس", "", 1).strip() or "Damascus"
+            city = clean.replace("طقس", "").strip() or "Damascus"
             try:
                 res = requests.get(f"https://wttr.in/{city}?format=%C+%t&m").text
                 await self.conn.send_message(target, f"🌡️ طقس {city}: {res}")
-            except:
-                pass
+            except: pass
 
         elif "أخبار" in clean:
             try:
                 feed = feedparser.parse("https://www.aljazeera.net/aljazeerarss")
-                msg = "📰 آخر الأخبار:\n" + "\n".join(
-                    [f"🔹 {e.title}" for e in feed.entries[:3]]
-                )
+                msg = "📰 آخر الأخبار:\n" + "\n".join([f"🔹 {e.title}" for e in feed.entries[:3]])
                 await self.conn.send_message(target, msg)
-            except:
-                pass
-elif "برج" in clean:
-    sign_ar = next((ar for ar in ZODIAC_MAP.keys() if ar in clean), None)
-    if sign_ar:
-        try:
-            sign_en = ZODIAC_MAP[sign_ar]
+            except: pass
 
-            # جلب الحظ اليومي
-            res = requests.get(
-                f"https://horoscope-app-api.vercel.app/api/v1/get-horoscope/daily?sign={sign_en}&day=today"
-            ).json()
+        elif "برج" in clean:
+            sign_ar = next((ar for ar in ZODIAC_MAP.keys() if ar in clean), None)
+            if sign_ar:
+                try:
+                    sign_en = ZODIAC_MAP[sign_ar]
+                    res = requests.get(f"https://horoscope-app-api.vercel.app/api/v1/get-horoscope/daily?sign={sign_en}&day=today").json()
+                    eng_text = res['data']['horoscope_data']
+                    resp = await asyncio.get_event_loop().run_in_executor(None, lambda: g4f.ChatCompletion.create(model=g4f.models.default, messages=[{"role": "user", "content": f"ترجم بلهجة شامية: {eng_text}"}]))
+                    await self.conn.send_message(target, f"✨ حظ برج {sign_ar} اليوم: {str(resp)}")
+                except: pass
+        
+        elif "خيروك" in clean:
+            await self.conn.send_message(target, f"🤔 لو خيروك: {random.choice(KHARE_LIST)}")
+            
+        elif "عاصمة" in clean:
+            country, city = random.choice(list(CAPITALS.items()))
+            self.active_questions[target] = {"country": country, "capital": city}
+            await self.conn.send_message(target, f"🌍 شو عاصمة {country}؟ (أول واحد بجاوب صح بياخد 50 نقطة! 💰)")
 
-            eng_text = res["data"]["horoscope_data"]
-
-            # ترجمة النص بلهجة شامية عبر Gemini
-            loop = asyncio.get_event_loop()
-            tr_prompt = f"ترجم النص التالي للعربية بلهجة شامية بسيطة بدون قلة أدب:\n{eng_text}"
-            tr_resp = await loop.run_in_executor(
-                None, lambda: gemini_model.generate_content(tr_prompt)
-            )
-
-            await self.conn.send_message(
-                target,
-                f"✨ حظ برج {sign_ar} اليوم:\n{tr_resp.text}",
-                mtype=mtype
-            )
-
-        except Exception as e:
-            log.error(f"Horoscope error: {e}")
-            await self.conn.send_message(
-                target,
-                "⚠️ ما قدرت جيب الحظ هلق، جرب بعد شوي يا كبير.",
-                mtype=mtype
-            )
-                if idx == -1:
-                    break
-                tag = "</message>" if self.conn.buffer.find("</message>") == idx else "</presence>"
-                stanza_str, self.conn.buffer = self.conn.buffer.split(tag, 1)
-                self._handle_stanza(stanza_str + tag)
-
-    def _handle_stanza(self, xml_str):
-        try:
-            root = ET.fromstring(xml_str)
-            tag = strip_ns(root.tag)
-            frm = root.attrib.get("from", "")
-            room = frm.split("/")[0]
-            sender_nick = frm.split("/")[1] if "/" in frm else ""
-            if sender_nick == self.nick:
-                return
-
-            if tag == "message":
-                body_elem = root.find("{jabber:client}body") or root.find("body")
-                if body_elem is not None and body_elem.text:
-                    body = body_elem.text.strip()
-                    mtype = root.attrib.get("type", "chat")
-
-                    # التحقق من إجابة العاصمة
-                    if room in self.active_questions:
-                        q = self.active_questions[room]
-                        if body == q["capital"]:
-                            room_data = self.memory["rooms"].setdefault(room, {"users": {}})
-                            u = room_data["users"].setdefault(
-                                sender_nick, {"points": 0, "last_seen": ""}
-                            )
-                            u["points"] += 50
-                            self.save_memory()
-                            del self.active_questions[room]
-                            asyncio.create_task(
-                                self.conn.send_message(
-                                    room,
-                                    f"✅ كفو يا {sender_nick}! الجواب صح ({body})، ربحت 50 نقطة! 🏆",
-                                )
-                            )
-                            return
-
-                    # تسجيل النقاط حسب الروم
-                    if sender_nick and room:
-                        room_data = self.memory["rooms"].setdefault(room, {"users": {}})
-                        u = room_data["users"].setdefault(
-                            sender_nick, {"points": 0, "last_seen": ""}
-                        )
-                        u["points"] += 1
-                        u["last_seen"] = str(datetime.now())
-                        self.save_memory()
-
-                    # فحص المسبات وتخزينها حسب الروم
-                    for bad in BAD_WORDS:
-                        if bad in body:
-                            self.memory["insults"].setdefault(room, []).append(
-                                {
-                                    "nick": sender_nick,
-                                    "msg": body,
-                                    "time": str(datetime.now()),# فحص المسبات وتخزينها حسب الروم
-                    for bad in BAD_WORDS:
-                        if bad in body:
-                            self.memory["insults"].setdefault(room, []).append({
-                                "nick": sender_nick,
-                                "msg": body,
-                                "time": str(datetime.now())
-                            })
-                            self.save_memory()
-
-                    # أوامر الآدمن (ريست)
-                    if self.is_admin(sender_nick) and body in ["ريست", "تحديث"]:
-                        os.execv(sys.executable, ['python'] + sys.argv)
-
-                    # إذا الرسالة من روم (groupchat)
-                    if mtype == "groupchat":
-                        if body.startswith(NICK):
-                            clean = body.replace(NICK, "", 1)
-                            clean = clean.lstrip(" :،؛.-_*/\\").strip()
-                            asyncio.create_task(
-                                self._process_command(room, clean, sender_nick, mtype)
-                            )
-                        return
-
-                    # إذا الرسالة من خاص تابع للروم
-                    if "@conference." in frm and mtype == "chat":
-                        clean = body.strip()
-                        asyncio.create_task(
-                            self._process_command(room, clean, sender_nick, mtype)
-                        )
-                        return
-
-                    # إذا خاص حقيقي
-                    if mtype == "chat":
-                        clean = body.strip()
-                        asyncio.create_task(
-                            self._process_command(frm, clean, sender_nick, mtype)
-                        )
-                        return
-
-        except:
-            pass
-
-    def is_admin(self, nick):
-        return nick == MY_NICK or nick in self.memory.get("admins", [])
-
-    async def _process_command(self, target, clean, nick, mtype):
-        def reply(msg):
-            if mtype == "groupchat":
-                asyncio.create_task(self.conn.send_message(target, msg, mtype="groupchat"))
-            else:
-                asyncio.create_task(self.conn.send_message(target, msg, mtype="chat"))
-
-        clean = clean.strip()
-        if not clean:
-            reply(f"لبيه يا {nick}، أنا الشاهين معك.. تفضل شو بدك؟")
-            return
-
-        # (هنا تكمل كل أوامر الإدارة – النقاط – الهدايا – الرومات – الطقس – الصلاة – الأخبار – الأبراج – خيروك – العواصم)
-        # أنت أصلاً عندك هالبلوك كامل جاهز فوق، وما طلبت تعديله، فخليته كما هو.
-
-        # آخر شي: الذكاء الاصطناعي
-        else:
+        else: # الذكاء الاصطناعي للردود العامة
             await self.ai_handler(target, clean, mtype, nick)
 
     async def ai_handler(self, target, text, mtype, nick):
         room = target
         room_data = self.memory["rooms"].setdefault(room, {"users": {}})
-
+        
+        # استثناء الآدمن من الخصم
         is_admin = self.is_admin(nick)
-
+        
         if not is_admin:
+            # فحص النقاط لغير الآدمن
             user_data = room_data["users"].get(nick, {"points": 0})
             if user_data["points"] < 5:
-                await self.conn.send_message(
-                    target,
-                    f"❌ يا {nick}، لازم يكون معك 5 نقاط على الأقل لتسألني. اجمع نقاط وارجع لعندي!",
-                    mtype=mtype
-                )
+                await self.conn.send_message(target, f"❌ يا {nick}، لازم يكون معك 5 نقاط على الأقل لتسألني. اجمع نقاط وارجع لعندي!", mtype=mtype)
                 return
 
+            # خصم النقاط مبدئياً
             room_data["users"][nick]["points"] -= 5
             self.save_memory()
 
-        prompt = f"""
-أنت الشاهين السوري… شب دمشقي خفيف دم، ردودك قصيرة ومهضومة،
-بتحكي بلهجة شامية واضحة، وبتعرف تتفنن بالحكي بدون ما تكون قليلة أدب.
-مبرمجك الأساسي اسمو: {MY_NICK}
-المستخدم يلي عم يحكي معك اسمو: {nick}
-رد عليه بدون تكرار، وبدون ما تطوّل.
-النص يلي بدك ترد عليه: {text}
-"""
-
+        prompt = f"أنت الشاهين السوري، ذكاء اصطناعي بلهجة شامية خفيفة. مبرمجك هو {MY_NICK}. أجب باختصار: {text}"
+        
         async with self.ai_lock:
+            success = False
+            response_text = ""
+            
+            # المحاولة الأولى: Gemini
             try:
                 loop = asyncio.get_event_loop()
-                response = await loop.run_in_executor(
-                    None, lambda: gemini_model.generate_content(prompt)
-                )
-                resp_text = (response.text or "").strip()
-                if not resp_text:
-                    resp_text = "⚠️ صار خطأ بسيط بالرد، جرب تعيد سؤالك يا غالي."
-                await self.conn.send_message(target, resp_text, mtype=mtype)
-
+                response = await loop.run_in_executor(None, lambda: gemini_model.generate_content(prompt))
+                response_text = response.text
+                success = True
             except Exception as e:
                 log.error(f"Gemini error: {e}")
+                # المحاولة الثانية: g4f كبديل (Fallback)
+                try:
+                    response = await loop.run_in_executor(None, lambda: g4f.ChatCompletion.create(model=g4f.models.default, messages=[{"role": "user", "content": prompt}]))
+                    response_text = str(response)
+                    success = True
+                except Exception as e2:
+                    log.error(f"g4f error: {e2}")
+
+            if success:
+                prefix = "" if is_admin else "💸 (تم خصم 5 نقاط) - "
+                await self.conn.send_message(target, f"{prefix}{response_text.strip()}", mtype=mtype)
+            else:
                 if not is_admin:
+                    # إعادة النقاط في حال فشل كل المحاولات
                     room_data["users"][nick]["points"] += 5
                     self.save_memory()
-                await self.conn.send_message(
-                    target, "⚠️ في ضغط هلق، جرب بعد شوي يا كبير.", mtype=mtype
-                )
+                await self.conn.send_message(target, "⚠️ عذراً، حالياً في ضغط كبير وما قدرت رد، نقاطك رجعتلك!", mtype=mtype)
 
+# --- التشغيل ---
 async def main():
-    keep_alive()
+    keep_alive() # تشغيل الويب لضمان بقاء السيرفر شغّال
     conn = XMPPConnection(JID, PASSWORD, SERVER, PORT)
     if await conn.connect():
         bot = ShahinBot(conn, ROOMS, NICK)
         if await bot.start():
-            while True:
-                await asyncio.sleep(10)
+            while True: await asyncio.sleep(10)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt: pass
