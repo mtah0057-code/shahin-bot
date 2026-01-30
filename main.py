@@ -57,8 +57,7 @@ MY_NICK = "ابن سـ☆☆☆ـوريـــا" # لقبك أنت كآدمن (�
 ROOMS = [
     "الغوالي@conference.syriatalk.info",
     "دمشقيات@conference.syriatalk.info",
-    "شمس@conference.syriatalk.info",
-    "مطر@conference.syriatalk.info"
+    "شمس@conference.syriatalk.info"
 ]
 
 MEMORY_FILE = "shahin_memory.json"
