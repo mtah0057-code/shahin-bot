@@ -182,14 +182,25 @@ class ShahinBot:
             log.error(f"Save memory error: {e}")
 
     async def start(self):
-        if not await self.conn.sasl_plain_auth():
-            return False
-        await self.conn.send_raw("<presence/>")
-        for room in self.rooms:
-            await self.conn.send_raw(
-                f"<presence to='{room}/{self.nick}'>"
-                f"<x xmlns='http://jabber.org/protocol/muc'/></presence>"
-            )
+    if not await self.conn.sasl_plain_auth():
+        return False
+
+    # حضور عام
+    await self.conn.send_raw("<presence/>")
+
+    # مهم جداً: نعطي السيرفر ثانية ليستقر
+    await asyncio.sleep(1)
+
+    # دخول الرومات
+    for room in self.rooms:
+        await self.conn.send_raw(
+            f"<presence to='{room}/{self.nick}'>"
+            f"<x xmlns='http://jabber.org/protocol/muc'/></presence>"
+        )
+
+    # بدء استقبال الرسائل
+    asyncio.create_task(self._recv_loop())
+    return True
 
         # بانر التفعيل (معلّق افتراضياً حتى ما يزعج الرومات كل ريستارت)
         # banner = "┏━━━━━━━ ⚡ ━━━━━━━┓\n تـم تـفـعـيـل نـظـام الشــاهِيــن\n ᴘᴏᴡᴇʀᴇᴅ ʙʏ ابن سـ☆☆☆ـوريـــا\n┗━━━━━━━ ⚡ ━━━━━━━┛"
