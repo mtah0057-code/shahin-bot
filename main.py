@@ -57,8 +57,7 @@ MY_NICK = "ابن سـ☆☆☆ـوريـــا" # لقبك أنت كآدمن (�
 ROOMS = [
     "الغوالي@conference.syriatalk.info",
     "دمشقيات@conference.syriatalk.info",
-    "شمس@conference.syriatalk.info",
-    "مطر@conference.syriatalk.info"
+    "شمس@conference.syriatalk.info"
 ]
 
 MEMORY_FILE = "shahin_memory.json"
@@ -591,7 +590,13 @@ class ShahinBot:
             room_data["users"][nick]["points"] -= 5
             self.save_memory()
 
-        prompt = f"أنت الشاهين السوري، ذكاء اصطناعي بلهجة شامية خفيفة. مبرمجك هو {MY_NICK}. أجب باختصار: {text}"
+        prompt = (
+    f"أنت الشاهين السوري، ذكاء اصطناعي بلهجة شامية وغزلية. "
+    f"الشخص اللي عم يحكي معك اسمه: {nick}. "
+    f"حلّل اللقب إذا كان يدل على ذكر أو أنثى، "
+    f"وخلّي ردّك مناسب للجنس. "
+    f"أجب باختصار: {text}"
+        )
         
         async with self.ai_lock:
             success = False
