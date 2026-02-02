@@ -18,7 +18,7 @@ from flask import Flask
 from threading import Thread
 
 # --- إعداد Gemini ---
-GEMINI_KEY = "AIzaSyAqrj9Mk7OPBPVi9ZHv4lMTmmXRGdY0H50"
+GEMINI_KEY = "AIzaSyCqUPcsu7ajHZUgqpQl5pdyyndZVYXplc8"
 genai.configure(api_key=GEMINI_KEY)
 gemini_model = genai.GenerativeModel('gemini-2.5-flash')
 
