@@ -173,8 +173,8 @@ class ShahinBot:
         
         banner = "┏━━━━━━━ ⚡ ━━━━━━━┓\n تـم تـفـعـيـل نـظـام الشــاهِيــن الـسُّــورِي \n ᴘᴏᴡᴇʀᴇᴅ ʙʏ ابن سـ☆☆☆ـوريـــا\n┗━━━━━━━ ⚡ ━━━━━━━┛"
         for room in self.rooms:
-    await self.conn.send_message(room, banner)
-    await self.conn.send_raw(f"""
+            await self.conn.send_message(room, banner)
+            await self.conn.send_raw(f"""
 <presence>
     <show>chat</show>
     <status>⚡ powered by ابن سـ☆☆☆ـوريـــا نـظـام الشــاهِيــن قيد التشغيل</status>
