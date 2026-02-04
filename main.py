@@ -172,6 +172,14 @@ class ShahinBot:
             await self.conn.send_raw(f"<presence to='{room}/{self.nick}'><x xmlns='http://jabber.org/protocol/muc'/></presence>")
         
         banner = "┏━━━━━━━ ⚡ ━━━━━━━┓\n تـم تـفـعـيـل نـظـام الشــاهِيــن الـسُّــورِي \n ᴘᴏᴡᴇʀᴇᴅ ʙʏ ابن سـ☆☆☆ـوريـــا\n┗━━━━━━━ ⚡ ━━━━━━━┛"
+        for room in self.rooms:
+    await self.conn.send_message(room, banner)
+    await self.conn.send_raw(f"""
+<presence>
+    <show>chat</show>
+    <status>⚡ powered by ابن سـ☆☆☆ـوريـــا نـظـام الشــاهِيــن قيد التشغيل</status>
+</presence>
+""")
         asyncio.create_task(self._recv_loop())
         return True
 
