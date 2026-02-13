@@ -574,6 +574,31 @@ class ShahinBot:
             country, city = random.choice(list(CAPITALS.items()))
             self.active_questions[target] = {"country": country, "capital": city}
             await self.conn.send_message(target, f"🌍 شو عاصمة {country}؟ (أول واحد بجاوب صح بياخد 50 نقطة! 💰)")
+            elif clean.startswith("صورة "):
+    prompt = clean.replace("صورة", "").strip()
+
+    try:
+        response = g4f.ChatCompletion.create(
+            model="flux-dev",
+            provider=g4f.Provider.BlackForestLabs_Flux1Dev,
+            messages=[{"role": "user", "content": prompt}]
+        )
+
+        url = response.split("(")[-1].split(")")[0]
+        img_data = requests.get(url).content
+
+        img = Image.open(BytesIO(img_data)).convert("RGB")
+        buffer = BytesIO()
+        img.save(buffer, format="PNG")
+        encoded = base64.b64encode(buffer.getvalue()).decode()
+
+        xml_img = f"<message to='{target}' type='groupchat'><body>📷 {prompt}</body><attachment xmlns='urn:xmpp:attachment:0' type='image/png'>{encoded}</attachment></message>"
+        await self.conn.send_raw(xml_img)
+
+    except Exception as e:
+        await self.conn.send_message(target, f"❌ ما قدرت طلّع الصورة يا {nick}.", mtype=mtype)
+
+    return
 
         else: # الذكاء الاصطناعي للردود العامة
             await self.ai_handler(target, clean, mtype, nick)
@@ -640,41 +665,7 @@ class ShahinBot:
                     room_data["users"][nick]["points"] += 5
                     self.save_memory()
                 await self.conn.send_message(target, "⚠️ عذراً، حالياً في ضغط كبير وما قدرت رد، نقاطك رجعتلك!", mtype=mtype)
-                # --- توليد صورة ---
-elif clean.startswith("صورة "):
-    prompt = clean.replace("صورة", "").strip()
 
-    try:
-        # 1) توليد الصورة عبر FLUX
-        response = g4f.ChatCompletion.create(
-            model="flux-dev",
-            provider=g4f.Provider.BlackForestLabs_Flux1Dev,
-            messages=[{"role": "user", "content": prompt}]
-        )
-
-        # 2) استخراج الرابط
-        url = response.split("(")[-1].split(")")[0]
-
-        # 3) تنزيل الصورة
-        img_data = requests.get(url).content
-
-        # 4) تحويلها لـ PNG
-        from PIL import Image
-        from io import BytesIO
-
-        img = Image.open(BytesIO(img_data)).convert("RGB")
-        buffer = BytesIO()
-        img.save(buffer, format="PNG")
-        encoded = base64.b64encode(buffer.getvalue()).decode()
-
-        # 5) إرسالها كصورة عادية عبر XMPP
-        xml_img = f"<message to='{target}' type='groupchat'><body>📷 {prompt}</body><attachment xmlns='urn:xmpp:attachment:0' type='image/png'>{encoded}</attachment></message>"
-        await self.conn.send_raw(xml_img)
-
-    except Exception as e:
-        await self.conn.send_message(target, f"❌ ما قدرت طلّع الصورة يا {nick}. جرّب وصف أبسط.", mtype=mtype)
-
-    return
 
 # --- التشغيل ---
 async def main():
