@@ -571,10 +571,11 @@ class ShahinBot:
             await self.conn.send_message(target, f"🤔 لو خيروك: {random.choice(KHARE_LIST)}")
             
         elif "عاصمة" in clean:
-            country, city = random.choice(list(CAPITALS.items()))
-            self.active_questions[target] = {"country": country, "capital": city}
-            await self.conn.send_message(target, f"🌍 شو عاصمة {country}؟ (أول واحد بجاوب صح بياخد 50 نقطة! 💰)")
-            elif clean.startswith("صورة "):
+    country, city = random.choice(list(CAPITALS.items()))
+    self.active_questions[target] = {"country": country, "capital": city}
+    await self.conn.send_message(target, f"🌍 شو عاصمة {country}؟ (أول واحد بجاوب صح بياخد 50 نقطة! 💰)")
+
+elif clean.startswith("صورة "):
     prompt = clean.replace("صورة", "").strip()
 
     try:
@@ -599,7 +600,6 @@ class ShahinBot:
         await self.conn.send_message(target, f"❌ ما قدرت طلّع الصورة يا {nick}.", mtype=mtype)
 
     return
-
         else: # الذكاء الاصطناعي للردود العامة
             await self.ai_handler(target, clean, mtype, nick)
 
