@@ -569,11 +569,13 @@ class ShahinBot:
         
         elif "خيروك" in clean:
             await self.conn.send_message(target, f"🤔 لو خيروك: {random.choice(KHARE_LIST)}")
-            
-        elif "عاصمة" in clean:
+            elif "عاصمة" in clean:
     country, city = random.choice(list(CAPITALS.items()))
     self.active_questions[target] = {"country": country, "capital": city}
-    await self.conn.send_message(target, f"🌍 شو عاصمة {country}؟ (أول واحد بجاوب صح بياخد 50 نقطة! 💰)")
+    await self.conn.send_message(
+        target,
+        f"🌍 شو عاصمة {country}؟ (أول واحد بجاوب صح بياخد 50 نقطة! 💰)"
+    )
 
 elif clean.startswith("صورة "):
     prompt = clean.replace("صورة", "").strip()
@@ -593,7 +595,12 @@ elif clean.startswith("صورة "):
         img.save(buffer, format="PNG")
         encoded = base64.b64encode(buffer.getvalue()).decode()
 
-        xml_img = f"<message to='{target}' type='groupchat'><body>📷 {prompt}</body><attachment xmlns='urn:xmpp:attachment:0' type='image/png'>{encoded}</attachment></message>"
+        xml_img = f"""
+<message to='{target}' type='groupchat'>
+    <body>📷 {prompt}</body>
+    <attachment xmlns='urn:xmpp:attachment:0' type='image/png'>{encoded}</attachment>
+</message>
+"""
         await self.conn.send_raw(xml_img)
 
     except Exception as e:
